@@ -36,13 +36,17 @@ public class AccessInterceptor implements HandlerInterceptor {
         if (!(handler instanceof HandlerMethod method)) {
             return true;
         }
-        if (find(method, PublicEndpoint.class) != null) {
+        // The method's own rule wins; the class rule applies only to methods without any.
+        Annotation rule = rule(method.getMethod().getAnnotations());
+        if (rule == null) {
+            rule = rule(method.getBeanType().getAnnotations());
+        }
+        if (rule instanceof PublicEndpoint) {
             return true;
         }
         Caller caller = CallerFilter.callerOf(request);
-        RequiresPermission required = find(method, RequiresPermission.class);
-        if (required == null && find(method, Authenticated.class) == null
-                && defaultPolicy == AccessProperties.DefaultPolicy.PUBLIC) {
+        RequiresPermission required = rule instanceof RequiresPermission r ? r : null;
+        if (rule == null && defaultPolicy == AccessProperties.DefaultPolicy.PUBLIC) {
             return true;
         }
         if (!caller.authenticated()) {
@@ -63,8 +67,13 @@ public class AccessInterceptor implements HandlerInterceptor {
         return false;
     }
 
-    private static <A extends Annotation> A find(HandlerMethod method, Class<A> type) {
-        A found = method.getMethodAnnotation(type);
-        return found != null ? found : method.getBeanType().getAnnotation(type);
+    /** The one access annotation among the given ones, or null. */
+    private static Annotation rule(Annotation[] annotations) {
+        for (Annotation annotation : annotations) {
+            if (annotation instanceof PublicEndpoint || annotation instanceof Authenticated || annotation instanceof RequiresPermission) {
+                return annotation;
+            }
+        }
+        return null;
     }
 }

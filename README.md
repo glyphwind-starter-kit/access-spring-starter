@@ -13,10 +13,13 @@ tokens or the session store.
 - **Authorization** happens in the service: it knows its own permissions
   (`resource:action`) and checks them; it does not know roles.
 - **Trust** is the signature: HMAC-SHA256 over the identity, the time and the request
-  method + path, with a secret shared between the gateway and the service (from Vault).
-  Headers without a valid signature are ignored, so a caller inside the network cannot
-  impersonate a user; binding the path stops replaying a captured identity elsewhere and
-  the time bounds replay on the same path. Repeated identity headers are ignored too.
+  method + target (path and query string), with a secret shared between the gateway and the
+  service (from Vault). Headers without a valid signature are ignored, so a caller inside
+  the network cannot impersonate a user; binding the target stops replaying a captured
+  identity against another endpoint or other parameters, and the time (60 s by default)
+  bounds replay of the identical request. Repeated identity headers are ignored too.
+  Not covered: the request body, and an identical replay inside the time window; the
+  gateway-to-service hop is meant to stay inside the cluster network (NetworkPolicy).
 
 ## Use
 
@@ -59,7 +62,8 @@ class OrdersController {
 ```
 
 Deny by default: under `/api/**` a handler without any of the three annotations requires
-a signed-in caller. A service without a protected API can set `access.default-policy: public`.
+a signed-in caller. A method's own annotation always wins; the class annotation applies to
+methods that have none. A service without a protected API can set `access.default-policy: public`.
 
 Errors use the shared body `{status, code, error, params}`: `401 not_authenticated`,
 `403 permission_required` with `params.permission`.
@@ -76,5 +80,5 @@ Only for `application-local.yaml`; a deployed service without a secret refuses t
 ```java
 var signer = new GatewaySigner(secret);
 long now = Instant.now().getEpochSecond();
-String signature = signer.sign(identity, now, request.getMethod(), request.getRequestURI());
+String signature = signer.sign(identity, now, request.getMethod(), GatewaySigner.target(request));
 ```

@@ -10,11 +10,13 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
 /**
- * HMAC-SHA256 over the identity headers, the time and the request line. The gateway signs
+ * HMAC-SHA256 over the identity headers, the time and the request target. The gateway signs
  * with it, the services verify with it, so the algorithm lives in one place.
  *
- * <p>Binding the request method and path into the signature stops a captured identity
- * from being replayed against another endpoint; the time bounds replay against the same one.
+ * <p>The request method and target (path plus raw query string, see {@link #target}) are
+ * part of the signature, so a captured identity cannot be replayed against another endpoint
+ * or with other parameters; the time bounds replay of the identical request. The body is
+ * not signed: the gateway-to-service hop is assumed to be inside the cluster network.
  */
 public final class GatewaySigner {
 
@@ -33,11 +35,17 @@ public final class GatewaySigner {
         }
     }
 
-    public String sign(Identity identity, long epochSeconds, String method, String path) {
-        return Base64.getEncoder().encodeToString(mac(message(identity, epochSeconds, method, path)));
+    /** The signed request target: path plus {@code ?} and the raw query string when present. */
+    public static String target(jakarta.servlet.http.HttpServletRequest request) {
+        String query = request.getQueryString();
+        return query == null || query.isEmpty() ? request.getRequestURI() : request.getRequestURI() + "?" + query;
     }
 
-    public boolean verify(String signature, Identity identity, long epochSeconds, String method, String path) {
+    public String sign(Identity identity, long epochSeconds, String method, String target) {
+        return Base64.getEncoder().encodeToString(mac(message(identity, epochSeconds, method, target)));
+    }
+
+    public boolean verify(String signature, Identity identity, long epochSeconds, String method, String target) {
         if (signature == null || signature.isBlank()) {
             return false;
         }
@@ -47,7 +55,7 @@ public final class GatewaySigner {
         } catch (IllegalArgumentException e) {
             return false;
         }
-        byte[] expected = mac(message(identity, epochSeconds, method, path));
+        byte[] expected = mac(message(identity, epochSeconds, method, target));
         return MessageDigest.isEqual(expected, given);
     }
 
@@ -58,13 +66,13 @@ public final class GatewaySigner {
         }
     }
 
-    private static String message(Identity identity, long epochSeconds, String method, String path) {
+    private static String message(Identity identity, long epochSeconds, String method, String target) {
         return String.join(
                 "\n",
                 "v1",
                 Long.toString(epochSeconds),
                 method,
-                path,
+                target,
                 identity.userId(),
                 identity.username(),
                 identity.sessionId(),

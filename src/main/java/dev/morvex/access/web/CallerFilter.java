@@ -67,7 +67,7 @@ public class CallerFilter extends OncePerRequestFilter {
             return Caller.anonymous();
         }
         boolean valid = signer.verify(
-                request.getHeader(IdentityHeaders.SIGNATURE), identity, time, request.getMethod(), request.getRequestURI());
+                request.getHeader(IdentityHeaders.SIGNATURE), identity, time, request.getMethod(), GatewaySigner.target(request));
         if (!valid) {
             log.warn("{} {}: identity headers with an invalid signature, ignored", request.getMethod(), request.getRequestURI());
             return Caller.anonymous();

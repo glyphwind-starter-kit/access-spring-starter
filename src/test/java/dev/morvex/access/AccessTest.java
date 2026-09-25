@@ -122,6 +122,35 @@ class AccessTest {
     }
 
     @Test
+    void signatureIsBoundToTheQueryString() throws Exception {
+        long now = NOW.getEpochSecond();
+        GatewaySigner.Identity identity = new GatewaySigner.Identity("u1", "alice", "s1", List.of("orders:read"));
+        String forId1 = SIGNER.sign(identity, now, "GET", "/api/v1/orders?id=1");
+        mvc.perform(get("/api/v1/orders?id=2")
+                        .header(IdentityHeaders.USER, "u1")
+                        .header(IdentityHeaders.USERNAME, "alice")
+                        .header(IdentityHeaders.SESSION, "s1")
+                        .header(IdentityHeaders.PERMISSIONS, "orders:read")
+                        .header(IdentityHeaders.TIME, now)
+                        .header(IdentityHeaders.SIGNATURE, forId1))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(signed(get("/api/v1/orders?id=1"), "orders:read")).andExpect(status().isOk());
+    }
+
+    @Test
+    void methodRuleWinsOverClassRule() throws Exception {
+        // class is @PublicEndpoint, method demands a permission
+        mvc.perform(get("/api/v1/mixed/protected")).andExpect(status().isUnauthorized());
+        mvc.perform(signed(get("/api/v1/mixed/protected"), "orders:read")).andExpect(status().isForbidden());
+        mvc.perform(signed(get("/api/v1/mixed/protected"), "orders:admin")).andExpect(status().isOk());
+        mvc.perform(get("/api/v1/mixed/open")).andExpect(status().isOk());
+        // class demands a permission, method is only @Authenticated
+        mvc.perform(get("/api/v1/locked/any")).andExpect(status().isUnauthorized());
+        mvc.perform(signed(get("/api/v1/locked/any"), "nothing:special")).andExpect(status().isOk());
+        mvc.perform(signed(get("/api/v1/locked/strict"), "nothing:special")).andExpect(status().isForbidden());
+    }
+
+    @Test
     void staleSignatureIsRejected() throws Exception {
         long old = NOW.minusSeconds(120).getEpochSecond();
         mvc.perform(signedAt(get("/api/v1/me"), old, "orders:read")).andExpect(status().isUnauthorized());
@@ -151,8 +180,9 @@ class AccessTest {
 
     static MockHttpServletRequestBuilder signedAt(
             MockHttpServletRequestBuilder request, long time, String... permissions) {
-        String path = request.buildRequest(null).getRequestURI();
-        String method = request.buildRequest(null).getMethod();
+        var built = request.buildRequest(null);
+        String path = built.getQueryString() == null ? built.getRequestURI() : built.getRequestURI() + "?" + built.getQueryString();
+        String method = built.getMethod();
         GatewaySigner.Identity identity = new GatewaySigner.Identity("u1", "alice", "s1", List.of(permissions));
         return request.header(IdentityHeaders.USER, identity.userId())
                 .header(IdentityHeaders.USERNAME, identity.username())

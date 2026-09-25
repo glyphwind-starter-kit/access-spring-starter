@@ -47,6 +47,38 @@ public class TestApp {
     }
 
     @RestController
+    @RequestMapping("/api/v1/mixed")
+    @PublicEndpoint
+    static class Mixed {
+        @GetMapping("/open")
+        Map<String, String> open() {
+            return Map.of("ok", "open");
+        }
+
+        @GetMapping("/protected")
+        @RequiresPermission("orders:admin")
+        Map<String, String> guarded() {
+            return Map.of("ok", "guarded");
+        }
+    }
+
+    @RestController
+    @RequestMapping("/api/v1/locked")
+    @RequiresPermission("orders:admin")
+    static class Locked {
+        @GetMapping("/any")
+        @Authenticated
+        Map<String, String> any() {
+            return Map.of("ok", "any");
+        }
+
+        @GetMapping("/strict")
+        Map<String, String> strict() {
+            return Map.of("ok", "strict");
+        }
+    }
+
+    @RestController
     static class Outside {
         @GetMapping("/healthz")
         Map<String, String> health() {
